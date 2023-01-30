@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # coding=utf-8
 
 # The MIT License (MIT)
@@ -36,13 +36,14 @@ import io
 import os
 import sqlite3
 import sys
+import re
 
 __author__ = "Alberto Pettarin"
 __email__ = "alberto@albertopettarin.it"
 __copyright__ = "Copyright 2013-2017, Alberto Pettarin (www.albertopettarin.it)"
 __license__ = "MIT"
 __status__ = "Production"
-__version__ = "2.1.1"
+__version__ = "2.2.0"
 
 
 PY2 = (sys.version_info[0] == 2)
@@ -174,6 +175,8 @@ class Item(object):
         self.booktitle = values[6]
         self.title = values[7]
         self.author = values[8]
+        self.bookmark_id = values[9]
+        self.location = str(values[10]) + " " + values[11]
         self.kind = self.BOOKMARK
         if (self.text is not None) and (self.text != "") and (self.annotation is not None) and (self.annotation != ""):
             self.kind = self.ANNOTATION
@@ -184,7 +187,7 @@ class Item(object):
         """
         Return a tuple representing this Item, for CSV-output purposes.
         """
-        return (self.kind, self.title, self.author, self.datecreated, self.datemodified, self.annotation, self.text)
+        return (self.kind, self.title, self.author, self.location, self.datecreated, self.datemodified, self.annotation, re.sub(r'\n|\r', '', self.text))
 
     def kindle_my_clippings(self):
         """
@@ -221,7 +224,7 @@ class Item(object):
         return u"\n".join(acc)
 
     def __repr__(self):
-        return u"(%s, %s, %s, %s, %s, %s, %s)" % self.csv_tuple()
+        return u"(%s, %s, %s, %s, %s, %s, %s, %s)" % self.csv_tuple()
 
     def __str__(self):
         acc = []
@@ -230,6 +233,7 @@ class Item(object):
             acc.append(u"Type:           %s" % (self.kind))
             acc.append(u"Title:          %s" % (self.title))
             acc.append(u"Author:         %s" % (self.author))
+            acc.append(u"Location:       %s" % (self.location))
             acc.append(u"Date created:   %s" % (self.datecreated))
             acc.append(u"Annotation:%s%s%s" % (sep, self.annotation, sep))
             acc.append(u"Reference text:%s%s%s" % (sep, self.text, sep))
@@ -237,6 +241,7 @@ class Item(object):
             acc.append(u"Type:           %s" % (self.kind))
             acc.append(u"Title:          %s" % (self.title))
             acc.append(u"Author:         %s" % (self.author))
+            acc.append(u"Location:       %s" % (self.location))
             acc.append(u"Date created:   %s" % (self.datecreated))
             acc.append(u"Reference text:%s%s%s" % (sep, self.text, sep))
         return u"\n".join(acc)
@@ -336,6 +341,13 @@ class ExportKobo(CommandLineTool):
           "action": "store_true",
           "help": "Output in raw text instead of human-readable format"
         },
+        {
+            "name": "--sort_by",
+            "nargs": "?",
+            "type": str,
+            "default": "date_created",
+            "help": "Define sorting method. Supported values: date_created, date_modified, location."
+        },
     ]
 
     # NOTE: not a tuple, just a continuation string!
@@ -349,9 +361,13 @@ class ExportKobo(CommandLineTool):
         "Bookmark.DateModified, "
         "content.BookTitle, "
         "content.Title, "
-        "content.Attribution "
+        "content.Attribution, "
+        "Bookmark.BookmarkID, "
+        "Bookmark.ChapterProgress, "
+        "Bookmark.StartContainerPath "
         "FROM Bookmark INNER JOIN content "
-        "ON Bookmark.VolumeID = content.ContentID;"
+        "ON Bookmark.VolumeID = content.ContentID "
+        "ORDER_BY_STRING ASC;"
     )
 
     # NOTE: not a tuple, just a continuation string!
@@ -360,7 +376,8 @@ class ExportKobo(CommandLineTool):
         "Bookmark.VolumeID, "
         "content.BookTitle, "
         "content.Title, "
-        "content.Attribution "
+        "content.Attribution, "
+        "Bookmark.BookmarkID "
         "FROM Bookmark INNER JOIN content "
         "ON Bookmark.VolumeID = content.ContentID "
         "ORDER BY content.Title;"
@@ -397,7 +414,10 @@ class ExportKobo(CommandLineTool):
                 acc = u"\n".join([i.kindle_my_clippings() for i in items])
             elif self.vargs["csv"]:
                 # CSV format
-                acc = self.list_to_csv([i.csv_tuple() for i in items])
+                acc = []
+                acc.append((u'KIND', u'TITLE', u'AUTHOR', u'LOCATION', u'DATECREATED', u'DATEMODIFIED', u'ANNOTATION', u'TEXT',))
+                acc.extend([i.csv_tuple() for i in items])
+                acc = self.list_to_csv(acc)
             elif self.vargs["raw"]:
                 acc = u"\n".join([(u"%s\n" % i.text) for i in items])
             else:
@@ -474,7 +494,18 @@ class ExportKobo(CommandLineTool):
         Query the SQLite file, filtering Item objects as specified
         by the user.
         """
-        items = [Item(d) for d in self.query(self.QUERY_ITEMS)]
+        # Define the order by
+        sort_by = self.vargs["sort_by"]
+        if sort_by == "date_created":
+            ORDER_BY_COLUMNS = "Bookmark.DateCreated"
+        elif sort_by == "date_modified":
+            ORDER_BY_COLUMNS = "Bookmark.DateModified"
+        elif sort_by == "location":
+            ORDER_BY_COLUMNS = "Bookmark.ChapterProgress, Bookmark.StartContainerPath"
+        else:
+            self.error(u"Invalid --sort_by value.")
+
+        items = [Item(d) for d in self.query(self.QUERY_ITEMS.replace("ORDER_BY_STRING", "ORDER BY " + ORDER_BY_COLUMNS))]
         if len(items) == 0:
             return items
         if (self.vargs["bookid"] is not None) and (self.vargs["book"] is not None):
