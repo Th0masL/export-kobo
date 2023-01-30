@@ -2,8 +2,8 @@
 
 A Python tool to export annotations and highlights from a Kobo SQLite file.
 
-* Version: 2.1.2
-* Date: 2018-07-11
+* Version: 2.2.0
+* Date: 2023-01-30
 * Developer: [Alberto Pettarin](http://www.albertopettarin.it/)
 * License: the MIT License (MIT)
 * Contact: [click here](http://www.albertopettarin.it/contact.html)
